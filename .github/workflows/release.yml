@@ -15,26 +15,29 @@ jobs:
       contents: read
       id-token: write
 
+    # The only lines that differ between repos sharing this workflow.
     env:
-      PROJECT: NugetDocsMcp.Cli/NugetDocsMcp.Cli.csproj
+      PROJECT: NugetDocsMcp.Cli
+      PACKAGE_ID: NugetDocsMcp
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
 
-    # The csproj <Version> is the source of truth; the tag only has to match it. The tag name
-    # is read from the environment, never pasted into the script, so it can't inject shell code.
+    # The csproj <Version> is the single source of truth; the tag must match it. The build
+    # deliberately does not pass -p:Version. The tag name is read from GITHUB_REF_NAME in the
+    # shell, never interpolated with ${{ }}, so a crafted tag name cannot inject commands.
     - name: Verify csproj version matches tag
       run: |
-        TAG_VERSION="${GITHUB_REF_NAME#v}"
-        CSPROJ_VERSION=$(grep -oP '(?<=<Version>)[^<]+' "$PROJECT")
-        if [ "$CSPROJ_VERSION" != "$TAG_VERSION" ]; then
-          echo "Tag version ($TAG_VERSION) does not match csproj <Version> ($CSPROJ_VERSION)."
-          echo "Bump <Version> in $PROJECT before tagging."
+        VERSION="${GITHUB_REF_NAME#v}"
+        CSPROJ="$PROJECT/$PROJECT.csproj"
+        CSPROJ_VERSION=$(grep -oP '(?<=<Version>)[^<]+' "$CSPROJ")
+        if [ "$CSPROJ_VERSION" != "$VERSION" ]; then
+          echo "::error::Tag version $VERSION does not match $CSPROJ <Version> $CSPROJ_VERSION. Bump <Version> before tagging."
           exit 1
         fi
 
@@ -47,9 +50,6 @@ jobs:
     - name: Test
       run: dotnet test --configuration Release --no-build --verbosity normal
 
-    - name: Pack
-      run: dotnet pack "$PROJECT" --configuration Release --no-build --output nupkg
-
     # Right before the push: the key this returns lives for about an hour.
     - name: Log in to NuGet through trusted publishing
       id: nuget-login
@@ -57,12 +57,13 @@ jobs:
       with:
         user: AdamTovatt
 
-    # --skip-duplicate: re-running an already published tag succeeds without pushing anything.
+    # No --skip-duplicate: pushing a version that is already published should fail the run,
+    # not turn it green without publishing anything.
     - name: Push to NuGet
       env:
         NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
-      run: >
-        dotnet nuget push nupkg/*.nupkg
-        --source https://api.nuget.org/v3/index.json
-        --api-key "$NUGET_API_KEY"
-        --skip-duplicate
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        dotnet nuget push "$PROJECT/bin/nupkg/$PACKAGE_ID.$VERSION.nupkg" \
+          --source https://api.nuget.org/v3/index.json \
+          --api-key "$NUGET_API_KEY"
