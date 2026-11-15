@@ -16,7 +16,7 @@ namespace NugetDocsMcp.Cli
 
             if (isMcpMode)
             {
-                return await RunMcpServerAsync(args);
+                return await RunMcpServerAsync();
             }
             else
             {
@@ -56,28 +56,11 @@ namespace NugetDocsMcp.Cli
             }
         }
 
-        private static async Task<int> RunMcpServerAsync(string[] args)
+        private static async Task<int> RunMcpServerAsync()
         {
             try
             {
-                HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
-
-                builder.Logging.ClearProviders();
-                builder.Logging.AddConsole(options =>
-                {
-                    options.LogToStandardErrorThreshold = LogLevel.Trace;
-                });
-
-                ConfigureServices(builder.Services);
-
-                builder.Services
-                    .AddMcpServer()
-                    .WithStdioServerTransport()
-                    .WithToolsFromAssembly();
-
-                builder.Services.AddSingleton<McpTools>();
-
-                IHost host = builder.Build();
+                IHost host = CreateMcpHostBuilder().Build();
                 await host.RunAsync();
 
                 return 0;
@@ -87,6 +70,29 @@ namespace NugetDocsMcp.Cli
                 Console.Error.WriteLine($"MCP Server error: {ex.Message}");
                 return 1;
             }
+        }
+
+        internal static HostApplicationBuilder CreateMcpHostBuilder()
+        {
+            // Empty builder: the default one loads appsettings.json with reload-on-change, which
+            // watches the whole working directory recursively (one inotify watch per folder).
+            HostApplicationBuilder builder = Host.CreateEmptyApplicationBuilder(settings: null);
+
+            builder.Logging.AddConsole(options =>
+            {
+                options.LogToStandardErrorThreshold = LogLevel.Trace;
+            });
+
+            ConfigureServices(builder.Services);
+
+            builder.Services
+                .AddMcpServer()
+                .WithStdioServerTransport()
+                .WithToolsFromAssembly();
+
+            builder.Services.AddSingleton<McpTools>();
+
+            return builder;
         }
 
         private static void ConfigureServices(IServiceCollection services)
