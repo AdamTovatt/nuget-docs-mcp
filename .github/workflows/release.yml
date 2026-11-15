@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    # id-token: write lets NuGet/login exchange GitHub's OIDC token for a short-lived
+    # nuget.org API key through the trusted publishing policy, so no long-lived key is stored.
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      PROJECT: NugetDocsMcp.Cli/NugetDocsMcp.Cli.csproj
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    # The csproj <Version> is the source of truth; the tag only has to match it. The tag name
+    # is read from the environment, never pasted into the script, so it can't inject shell code.
+    - name: Verify csproj version matches tag
+      run: |
+        TAG_VERSION="${GITHUB_REF_NAME#v}"
+        CSPROJ_VERSION=$(grep -oP '(?<=<Version>)[^<]+' "$PROJECT")
+        if [ "$CSPROJ_VERSION" != "$TAG_VERSION" ]; then
+          echo "Tag version ($TAG_VERSION) does not match csproj <Version> ($CSPROJ_VERSION)."
+          echo "Bump <Version> in $PROJECT before tagging."
+          exit 1
+        fi
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Test
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Pack
+      run: dotnet pack "$PROJECT" --configuration Release --no-build --output nupkg
+
+    # Right before the push: the key this returns lives for about an hour.
+    - name: Log in to NuGet through trusted publishing
+      id: nuget-login
+      uses: NuGet/login@v1
+      with:
+        user: AdamTovatt
+
+    # --skip-duplicate: re-running an already published tag succeeds without pushing anything.
+    - name: Push to NuGet
+      env:
+        NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+      run: >
+        dotnet nuget push nupkg/*.nupkg
+        --source https://api.nuget.org/v3/index.json
+        --api-key "$NUGET_API_KEY"
+        --skip-duplicate

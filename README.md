@@ -123,6 +123,15 @@ To package:
 dotnet pack NugetDocsMcp.Cli/NugetDocsMcp.Cli.csproj --configuration Release
 ```
 
+### Releasing
+
+Pushing a `vX.Y.Z` tag publishes that version to nuget.org through the Release workflow:
+
+1. Set `<Version>` in `NugetDocsMcp.Cli/NugetDocsMcp.Cli.csproj` to `X.Y.Z` and merge it to master.
+2. Tag that commit `vX.Y.Z` and push the tag.
+
+The workflow fails if the tag doesn't match `<Version>`. It builds, tests, packs and pushes using nuget.org trusted publishing, so no API key is stored in the repository.
+
 ## License
 
 MIT License
